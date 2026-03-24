@@ -170,6 +170,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           setIsPasswordRecovery(true);
           return;
         }
+        // USER_UPDATED: password or email changed. The auth user ID is unchanged
+        // so there is no need to re-resolve the internal user ID — skip the DB
+        // call entirely to prevent a hanging query when signOut() is called
+        // immediately after a password change.
+        if (_event === "USER_UPDATED") {
+          setSession(newSession);
+          setUser(newSession?.user ?? null);
+          await markActiveNow();
+          return;
+        }
         setSession(newSession);
         const authUser = newSession?.user ?? null;
         setUser(authUser);
@@ -363,7 +373,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     clearQueryCache();
     setInternalUserId(null);
     setIsPasswordRecovery(false);
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "global" });
     await clearInactivityMarker();
   }
 

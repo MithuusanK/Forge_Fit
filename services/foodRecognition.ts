@@ -109,7 +109,17 @@ async function invokeFunction<T>(
         detail = JSON.stringify(ctx);
       }
     } catch {}
-    console.error(`[${functionName}] error:`, detail);
+    const lowerDetail = String(detail).toLowerCase();
+    const isAuthError =
+      lowerDetail.includes("unauthorized") ||
+      lowerDetail.includes("not authenticated") ||
+      lowerDetail.includes("invalid or expired session");
+
+    // During auth transitions (sign-in/sign-out), edge functions can briefly
+    // return 401 before the session is fully restored. Avoid noisy error logs.
+    if (!isAuthError) {
+      console.error(`[${functionName}] error:`, detail);
+    }
     throw new Error(detail);
   }
   return data as T;

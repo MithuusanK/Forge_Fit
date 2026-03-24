@@ -1452,7 +1452,7 @@ function BarcodeScannerModal({
                   fontSize: 16,
                 }}
               >
-                Grant Permission
+                Continue
               </Text>
             </Pressable>
             <Pressable onPress={onClose} style={{ marginTop: Spacing.lg }}>

@@ -21,6 +21,7 @@ import {
 } from "react-native-safe-area-context";
 
 import AuthModal from "@/components/AuthModal";
+import { supabase } from "@/constants/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { ThemeMode, useTheme } from "@/hooks/useTheme";
 import {
@@ -34,7 +35,7 @@ import { log } from "@/utils/log";
 import { Alert } from "react-native";
 
 export default function ProfileScreen() {
-  const { user, authReady, signOut, signIn } = useAuth();
+  const { user, authReady, signOut } = useAuth();
   const { palette: P, themeMode, setThemeMode } = useTheme();
   // Shadow the static import so every inline Palette.xxx in JSX becomes reactive
   const Palette = P;
@@ -47,8 +48,11 @@ export default function ProfileScreen() {
   const [lastname, setLastname] = useState("");
   const [savingName, setSavingName] = useState(false);
   const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [authModalVisible, setAuthModalVisible] = useState(false);
   const [promptShown, setPromptShown] = useState(false);
   const [bioEditing, setBioEditing] = useState(false);
@@ -527,11 +531,21 @@ export default function ProfileScreen() {
                   placeholderTextColor={Palette.textMuted}
                   secureTextEntry
                 />
+                <Text style={[styles.inputLabel, { marginTop: Spacing.sm }]}>
+                  Confirm New Password
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  placeholder="Confirm new password"
+                  placeholderTextColor={Palette.textMuted}
+                  secureTextEntry
+                />
                 <View style={{ marginTop: 12 }}>
                   <Pressable
                     style={[styles.btn, { backgroundColor: Palette.accent }]}
                     onPress={async () => {
-                      // Require current password and validate new password rules
                       if (!currentPassword) {
                         Alert.alert(
                           "Please enter your current password to verify your identity.",
@@ -542,8 +556,11 @@ export default function ProfileScreen() {
                         Alert.alert("Please enter a new password.");
                         return;
                       }
+                      if (newPassword !== confirmPassword) {
+                        Alert.alert("New passwords do not match. Please try again.");
+                        return;
+                      }
 
-                      // validate new password (same rules as signup)
                       const isValidPassword = (value: string) =>
                         value.length >= 8 && /[^A-Za-z0-9]/.test(value);
 
@@ -556,27 +573,19 @@ export default function ProfileScreen() {
 
                       setChangingPassword(true);
                       try {
-                        // Re-authenticate the user by signing in with current credentials
-                        const email = user?.email ?? "";
-                        const { error: signInError } = (await signIn(
-                          email,
-                          currentPassword,
-                        )) as any;
-                        if (signInError) {
-                          // signIn in this hook returns { data, error }
-                          Alert.alert(
-                            "Current password is incorrect. Please try again.",
-                          );
-                          setChangingPassword(false);
-                          return;
-                        }
-
                         const res = await changeUserPassword(newPassword);
-                        setChangingPassword(false);
                         if (res.success) {
                           setNewPassword("");
                           setCurrentPassword("");
-                          Alert.alert("Password changed successfully.");
+                          setConfirmPassword("");
+                          // Sign out immediately so the stale session is invalidated.
+                          // The user must sign in again with the new password.
+                          await signOut();
+                          setAuthModalVisible(true);
+                          Alert.alert(
+                            "Password Updated",
+                            "Your password has been updated. Please sign in again.",
+                          );
                         } else {
                           Alert.alert(
                             "Failed to change password. Please try again.",
@@ -584,8 +593,9 @@ export default function ProfileScreen() {
                         }
                       } catch (e: any) {
                         console.error("Change password error:", e);
-                        setChangingPassword(false);
                         Alert.alert(e?.message || String(e));
+                      } finally {
+                        setChangingPassword(false);
                       }
                     }}
                   >
@@ -630,7 +640,128 @@ export default function ProfileScreen() {
             </View>
           </View>
 
+          {/* Delete Account Card */}
+          <View style={[styles.card, { borderColor: "#7f1d1d" }]}>
+            <Text style={[styles.label, { color: "#ef4444" }]}>
+              Delete Account
+            </Text>
+            <Text
+              style={[
+                styles.value,
+                { fontSize: 14, color: Palette.textSecondary, marginBottom: Spacing.md },
+              ]}
+            >
+              Permanently delete your account and all associated data. This
+              action cannot be undone.
+            </Text>
+            <Pressable
+              style={[
+                styles.btn,
+                { backgroundColor: "#dc2626", alignSelf: "flex-start" },
+              ]}
+              onPress={() => setShowDeleteModal(true)}
+            >
+              <Text style={styles.btnText}>Delete Account</Text>
+            </Pressable>
+          </View>
+
           <View style={{ height: 36 }} />
+
+          {/* Delete Account Confirmation Modal */}
+          <Modal
+            visible={showDeleteModal}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowDeleteModal(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalCard}>
+                <Text
+                  style={[
+                    styles.modalTitle,
+                    { color: "#ef4444", marginBottom: Spacing.md },
+                  ]}
+                >
+                  Delete Account Permanently
+                </Text>
+                <Text
+                  style={[
+                    styles.value,
+                    {
+                      fontSize: 15,
+                      color: Palette.textSecondary,
+                      marginBottom: Spacing.lg,
+                      lineHeight: 22,
+                    },
+                  ]}
+                >
+                  This will permanently delete your account and all of your
+                  data, including your profile, nutrition logs, workouts, and
+                  progress photos. This action{" "}
+                  <Text style={{ color: Palette.textPrimary, fontWeight: "700" }}>
+                    cannot be undone
+                  </Text>
+                  .
+                </Text>
+                <View style={styles.rowRight}>
+                  <Pressable
+                    style={[
+                      styles.btn,
+                      { backgroundColor: Palette.bgElevated, flex: 1 },
+                    ]}
+                    onPress={() => setShowDeleteModal(false)}
+                    disabled={deletingAccount}
+                  >
+                    <Text style={styles.btnTextSecondary}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.btn,
+                      { backgroundColor: "#dc2626", flex: 1 },
+                    ]}
+                    disabled={deletingAccount}
+                    onPress={async () => {
+                      setDeletingAccount(true);
+                      try {
+                        const { data, error } = await supabase.functions.invoke(
+                          "delete-account",
+                          { method: "POST" },
+                        );
+                        if (error || !data?.success) {
+                          Alert.alert(
+                            "Error",
+                            data?.error ??
+                              error?.message ??
+                              "Failed to delete account. Please try again.",
+                          );
+                          return;
+                        }
+
+                        setShowDeleteModal(false);
+                        // Clear local session state and send user back to sign-in flow.
+                        await signOut();
+                        setAuthModalVisible(true);
+                        Alert.alert(
+                          "Account Deleted",
+                          "Your account has been permanently deleted.",
+                        );
+                      } catch (e: any) {
+                        console.error("Delete account error:", e);
+                        Alert.alert("Error", e?.message ?? "An unexpected error occurred.");
+                      } finally {
+                        setDeletingAccount(false);
+                      }
+                    }}
+                  >
+                    <Text style={styles.btnText}>
+                      {deletingAccount ? "Deleting..." : "Delete My Account"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
           {/* Fitness Edit Modal */}
           <Modal visible={showFitnessModal} transparent animationType="slide">
             <KeyboardAvoidingView

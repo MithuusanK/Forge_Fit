@@ -13,6 +13,13 @@ let cachedInternalUserId: string | null = null;
 /** In-flight resolution promise to avoid duplicate DB lookups */
 let resolvePromise: Promise<string> | null = null;
 
+const SESSION_RETRY_ATTEMPTS = 5;
+const SESSION_RETRY_DELAY_MS = 150;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Resolve the internal user ID from the `users` table for the given auth_id
  * and store it in the module-level cache. Returns the internal ID.
@@ -65,15 +72,25 @@ export async function getUserId(): Promise<string> {
 
   resolvePromise = (async () => {
     try {
-      // getSession() reads from local storage — no network round-trip
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      // During sign-in/sign-out transitions there can be a brief window where
+      // session restoration has not completed yet. Retry a few times to avoid
+      // transient "Not authenticated" errors across startup loaders.
+      for (let attempt = 0; attempt < SESSION_RETRY_ATTEMPTS; attempt++) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      const authId = session?.user?.id;
-      if (!authId) throw new Error("Not authenticated");
+        const authId = session?.user?.id;
+        if (authId) {
+          return await resolveAndCacheUserId(authId);
+        }
 
-      return await resolveAndCacheUserId(authId);
+        if (attempt < SESSION_RETRY_ATTEMPTS - 1) {
+          await sleep(SESSION_RETRY_DELAY_MS);
+        }
+      }
+
+      throw new Error("Not authenticated");
     } finally {
       resolvePromise = null;
     }

@@ -76,8 +76,12 @@ export default function ResetPasswordScreen() {
           }
           return prev;
         });
+      } else {
+        // Session is valid — show the form immediately without waiting for
+        // onAuthStateChange to fire, which saves an extra async round-trip.
+        if (recoveryTimeoutRef.current) clearTimeout(recoveryTimeoutRef.current);
+        setScreenState("form");
       }
-      // On success, the onAuthStateChange listener above will fire PASSWORD_RECOVERY
     }
 
     // Get the URL that opened the app (cold launch)
@@ -86,7 +90,8 @@ export default function ResetPasswordScreen() {
     // Also listen for URL events while app is already open (warm launch)
     const linkingSub = Linking.addEventListener("url", ({ url }) => processDeepLink(url));
 
-    // Fallback timeout — if after 10 seconds we still haven't got a valid token
+    // Fallback timeout — if after 3 seconds we still haven't got a valid token,
+    // redirect back to the app rather than leaving the user on a blank screen.
     recoveryTimeoutRef.current = setTimeout(() => {
       setScreenState((prev) => {
         if (prev === "waiting") {
@@ -95,7 +100,7 @@ export default function ResetPasswordScreen() {
         }
         return prev;
       });
-    }, 10_000);
+    }, 3_000);
 
     return () => {
       subscriptionCleanup?.();

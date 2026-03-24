@@ -305,6 +305,16 @@ export default function HomeScreen() {
   // ── Calorie / meal data loader (background — calls backend) ─
   async function loadCalorieData() {
     try {
+      if (!authReady || !user) return;
+
+      // During auth transitions, `user` can be set just before the access token
+      // is fully available to edge-function calls. Skip this refresh until the
+      // session is present.
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) return;
+
       const summary = await getDailySummary(
         new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" }),
       );
