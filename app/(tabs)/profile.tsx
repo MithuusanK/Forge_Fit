@@ -723,22 +723,24 @@ export default function ProfileScreen() {
                     onPress={async () => {
                       setDeletingAccount(true);
                       try {
-                        const { data, error } = await supabase.functions.invoke(
-                          "delete-account",
-                          { method: "POST" },
+                        // Call the delete_my_account RPC directly — no edge function.
+                        // The DB function uses auth.uid() so users can only delete
+                        // their own account. It deletes all data + the auth user
+                        // in a single database transaction.
+                        const { error: rpcError } = await supabase.rpc(
+                          "delete_my_account",
                         );
-                        if (error || !data?.success) {
+
+                        if (rpcError) {
+                          console.error("Delete account RPC error:", rpcError);
                           Alert.alert(
                             "Error",
-                            data?.error ??
-                              error?.message ??
-                              "Failed to delete account. Please try again.",
+                            rpcError.message || "Failed to delete account. Please try again.",
                           );
                           return;
                         }
 
                         setShowDeleteModal(false);
-                        // Clear local session state and send user back to sign-in flow.
                         await signOut();
                         setAuthModalVisible(true);
                         Alert.alert(
@@ -747,7 +749,10 @@ export default function ProfileScreen() {
                         );
                       } catch (e: any) {
                         console.error("Delete account error:", e);
-                        Alert.alert("Error", e?.message ?? "An unexpected error occurred.");
+                        Alert.alert(
+                          "Error",
+                          e?.message ?? "An unexpected error occurred.",
+                        );
                       } finally {
                         setDeletingAccount(false);
                       }
